@@ -1,35 +1,44 @@
-# Guideline-Grounded Evidence Copilot — Exa Demo
+# NCCN Guideline Copilot — Exa Demo
 
 Turns a **static NCCN treatment guideline** into a **living, evidence-backed decision
-surface** powered by [Exa](https://exa.ai).
+surface** — powered entirely by [Exa](https://exa.ai), no other API.
+
+**Live demo:** https://havana-pja203gw7-vishu-agarwals-projects-86fb5b9f.vercel.app
+*(deployment URL changes per redeploy)*
 
 ## The use case
 
 | | |
 |---|---|
-| **End user** | Practicing oncologist / tumor-board coordinator at a cancer center |
-| **Problem** | Guidelines are frozen at publication (here: *NCCN Invasive Breast Cancer, v2.2026, Feb 27 2026*). New trials, FDA approvals, and label changes land weekly. Keeping current across every subtype is impossible manually; keyword search misses semantically-relevant papers; generic LLMs hallucinate citations. |
-| **What Exa does** | Neural search scoped to authoritative domains (FDA, NCCN, PubMed, ASCO/JCO, ClinicalTrials.gov, NEJM, Lancet), recency-filtered, returning a **grounded, cited brief** of what has changed since the guideline's cutoff. Every claim links to a real retrieved source. |
-| **Guardrail** | Exa retrieves and grounds evidence — the treating clinician makes the final call. Not a medical device. |
+| **End user** | Oncologists · tumor-board coordinators · quality managers |
+| **Chosen customer** | ConcertAI / CancerLinQ — licenses NCCN Guidelines as a data asset |
+| **Problem** | A guideline is frozen at publication (*NCCN Invasive Breast Cancer, v2.2026, Feb 27 2026*). New trials, FDA approvals, and label changes land weekly. Keyword search misses semantically-relevant papers; generic LLMs hallucinate citations you can't ship to clinicians. |
+| **What Exa does** | The live, cited layer on top of NCCN: grounds the guideline pathway in real source content, surfaces what's changed since the cutoff (mapped to the exact guideline point it updates), and answers clinical questions — every claim grounded in a retrieved source. |
+| **Guardrail** | Exa retrieves and grounds evidence — the treating clinician makes the final decision. Not a medical device. |
 
-## How it works
+## The workflow (matches the on-screen steps)
 
-1. **Left panel — the guideline anchor.** Clinician sets the patient profile using the
-   real NCCN axes: **clinical stage** + **ER / PR / HER2** receptor status. The app
-   derives the **subtype** (HR+/HER2−, HER2+, or TNBC) and shows the standard-of-care
-   treatment class from the guideline.
-2. **Right panel — live evidence via Exa.** One click calls Exa's `/search` with
-   `outputSchema` synthesis. Exa returns a headline + practice-relevant developments,
-   each with **field-level citations**, plus the raw retrieved sources with highlights
-   and publication dates.
+1. **Select the patient** — pick a patient persona or paste a real oncology note; the
+   profile (stage, ER/PR/HER2, biomarkers) is auto-extracted **locally** (no API).
+2. **NCCN treatment pathway** — every option per phase, tiered (Preferred / Other
+   recommended / Certain circumstances) with its NCCN Evidence & Consensus category.
+   **"Ground in NCCN via Exa"** pulls the real algorithm from source and cites it.
+3. **What's changed since the guideline** *(Exa)* — developments published after the
+   frozen version, each tagged with the guideline point it updates and cited
+   (FDA / PubMed / NEJM); "⤳ similar" finds related trials from one source.
+4. **Ask about this patient** *(Exa)* — a question-first, grounded, cited answer.
 
-The interesting Exa surface area on display:
-- Neural search (`type: "auto"`)
-- Domain scoping (`includeDomains`)
-- Recency filter (`startPublishedDate`)
-- Grounded structured synthesis (`outputSchema` + `systemPrompt`)
-- Field-level `grounding` citations
-- `highlights` content mode
+## Exa capabilities used (Exa-only)
+
+| Endpoint | Where | What it does |
+|---|---|---|
+| `/search` + `outputSchema` | Step 3 | Guideline-delta evidence: neural search scoped to authoritative domains, recency-filtered, grounded synthesis with field-level citations |
+| `/search` + `outputSchema` | Step 2 | Grounds the NCCN decision tree in guideline sources (nccn.org, cancer.gov) |
+| `/answer` | Step 4 | Question-first grounded answer with citations |
+| `/findSimilar` | Step 3 | Semantic "similar studies" from a source URL |
+
+Everything else (clinical-note extraction, subtype derivation, the baseline pathway
+engine) runs locally — Exa is called only where it is uniquely beneficial.
 
 ## Run it
 
@@ -38,39 +47,34 @@ npm install
 npm run dev
 ```
 
-The Exa API key lives in `.env.local` (`EXA_API_KEY`). Results are cached in-process
-per profile, so re-running the same profile during a demo does **not** re-hit the API.
+Set your key in `.env.local` (gitignored):
 
-Open the printed URL (e.g. http://localhost:3000).
+```
+EXA_API_KEY=your_key_here
+```
 
-### Try these profiles
+Results are cached in-process per profile, so re-running the same patient during a demo
+does not re-hit the API.
 
-| Profile | Why it demos well |
+### Patient personas to try
+
+| Persona | Demonstrates |
 |---|---|
-| Stage IV · ER− PR− HER2− → **TNBC** | Pulls recent ADC + immunotherapy trial readouts (sacituzumab govitecan + pembrolizumab, etc.) with PubMed citations |
-| Stage II · ER+ PR+ HER2− → **HR+/HER2−** | CDK4/6 inhibitor + genomic-assay evidence |
-| Stage III · HER2+ | Trastuzumab deruxtecan / neoadjuvant dual-blockade evidence |
-
-## The demo narrative (30-min walkthrough)
-
-1. **Frame the problem (slide).** Hold up the guideline PDF: "authoritative, but frozen
-   on Feb 27 2026. The document itself says recommendations *may be redefined as often as
-   new significant data become available*. That gap is where clinicians live."
-2. **Show the anchor (live).** Pick a patient profile → the guideline's treatment class
-   appears. Trusted, structured, but static.
-3. **Fill the gap with Exa (live).** Hit *Refresh evidence* → grounded brief of what's
-   changed since the cutoff, each claim citing a real FDA/PubMed/journal source.
-4. **Business impact (slide).** Faster tumor-board prep, fewer missed options, defensible
-   citations, reduced liability — and it's *current every single day* without a guideline
-   re-print.
+| Jane D. · Stage IIIA HER2+ | Extraction lands on Category-1 TCHP (matches the tumor board); rich HER2 evidence |
+| Aisha K. · Metastatic TNBC (PD-L1+) | ADC + immunotherapy trial readouts with PubMed citations |
+| Maria R. · Stage II HR+/HER2− | CDK4/6 inhibitor + genomic-assay evidence |
 
 ## Structure
 
 ```
 app/
-  page.tsx            Two-panel UI (guideline anchor ↔ live Exa evidence)
-  api/evidence/route.ts  Server route: builds the query, calls Exa /search, returns grounded brief + sources
+  page.tsx               Numbered 4-step UI (personas → pathway → evidence → ask)
+  api/evidence/route.ts  Exa /search — guideline-delta cited brief
+  api/pathway/route.ts   Exa /search — NCCN decision tree grounded in source
+  api/answer/route.ts    Exa /answer — grounded Q&A
+  api/similar/route.ts   Exa /findSimilar — similar studies
   layout.tsx, globals.css
 lib/
-  nccn.ts             Guideline anchor data + subtype derivation + query builder
+  nccn.ts                Guideline data, subtype derivation, pathway engine,
+                         clinical-note extractor, patient personas, query builders
 ```
