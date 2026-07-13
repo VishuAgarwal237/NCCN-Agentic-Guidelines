@@ -3,8 +3,8 @@
 Turns a **static NCCN treatment guideline** into a **living, evidence-backed decision
 surface** — powered entirely by [Exa](https://exa.ai), no other API.
 
-**Live demo:** https://havana-bxsbtpy6z-vishu-agarwals-projects-86fb5b9f.vercel.app
-*(deployment URL changes per redeploy)*
+**Live demo:** https://havana-blue.vercel.app
+*(stable production URL — always serves the latest deploy)*
 
 ## The use case
 
