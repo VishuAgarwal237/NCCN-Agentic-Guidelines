@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         query,
         type: "auto",
-        numResults: 8,
+        numResults: 24,
         includeDomains: ["clinicaltrials.gov"],
         contents: { highlights: true },
       }),

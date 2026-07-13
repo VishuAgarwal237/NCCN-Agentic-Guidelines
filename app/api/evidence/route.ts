@@ -67,17 +67,22 @@ export async function POST(req: NextRequest) {
     `The NCCN Guidelines for Patients (Invasive Breast Cancer, v2.2026, published ` +
     `Feb 27 2026) currently recommend the following for ${SUBTYPES[subtype].label} ` +
     `breast cancer:\n${guidelineBullets}\n\n` +
-    "Your job: surface ONLY evidence published after that guideline that UPDATES, " +
-    "CONTRADICTS, or EXTENDS one of those numbered recommendations. Ignore anything " +
-    "that merely restates current standard of care. For each development, name which " +
-    "numbered guideline point it affects (e.g. 'Point 2'). Prefer FDA announcements, " +
-    "NCCN, peer-reviewed journals (NEJM, Lancet, JCO) and trial registries. Collapse " +
-    "duplicate reporting. Keep every statement grounded in the retrieved sources.";
+    "Your job: surface the 3 to 6 most important developments published after that " +
+    "guideline for this subtype. Prioritise evidence that UPDATES, CONTRADICTS, or " +
+    "EXTENDS one of the numbered recommendations, but also include notable new FDA " +
+    "approvals, label changes, and practice-changing trial readouts even if they add " +
+    "to (rather than overturn) current care. For each development, name the numbered " +
+    "guideline point it most affects (e.g. 'Point 2'); if it introduces something new " +
+    "rather than changing an existing point, use 'New'. Make 'whatChanged' specific and " +
+    "detailed — name the drug/regimen, the trial, and key figures (median PFS/OS, " +
+    "hazard ratios, pCR rates) when available. Prefer FDA, NCCN, NEJM/Lancet/JCO and " +
+    "trial registries. Collapse duplicate reporting. Aim for at least 3 developments " +
+    "when the evidence exists. Keep every statement grounded in the retrieved sources.";
 
   const exaRequest = {
     query,
     type: "auto",
-    numResults: 8,
+    numResults: 12,
     includeDomains: AUTHORITATIVE_DOMAINS,
     startPublishedDate: startPublishedDate.toISOString(),
     contents: { highlights: true },
@@ -93,7 +98,8 @@ export async function POST(req: NextRequest) {
         },
         developments: {
           type: "array",
-          description: "Practice-relevant developments, most important first",
+          description:
+            "The 3–6 most important practice-relevant developments, most important first",
           items: {
             type: "object",
             required: ["title", "affectsGuidelinePoint", "whatChanged", "relevance"],
@@ -102,11 +108,12 @@ export async function POST(req: NextRequest) {
               affectsGuidelinePoint: {
                 type: "string",
                 description:
-                  "Which numbered guideline recommendation this updates/contradicts/extends, e.g. 'Point 2'",
+                  "Numbered guideline point it most affects, e.g. 'Point 2', or 'New' if it introduces something not in the guideline",
               },
               whatChanged: {
                 type: "string",
-                description: "What the new evidence or approval says",
+                description:
+                  "Detailed, specific summary — name the drug/regimen, the trial, and key figures (median PFS/OS, hazard ratio, pCR rate) when available",
               },
               relevance: {
                 type: "string",

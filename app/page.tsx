@@ -87,6 +87,14 @@ function host(url: string) {
   }
 }
 
+// Clip a preview to a short, word-boundary excerpt (~a third of a highlight).
+function clip(t: string, n = 110) {
+  if (t.length <= n) return t;
+  const cut = t.slice(0, n);
+  const sp = cut.lastIndexOf(" ");
+  return (sp > 40 ? cut.slice(0, sp) : cut) + "…";
+}
+
 function fmtDate(d: string | null) {
   if (!d) return null;
   try {
@@ -271,6 +279,7 @@ export default function Page() {
   >(null);
   const [trialsLoading, setTrialsLoading] = useState(false);
   const [trialsError, setTrialsError] = useState<string | null>(null);
+  const [trialsPage, setTrialsPage] = useState(0);
 
   // monitors (Exa Monitors API) — global, not per-patient
   const [monitorsOpen, setMonitorsOpen] = useState(false);
@@ -440,6 +449,7 @@ export default function Page() {
   async function runTrials() {
     setTrialsLoading(true);
     setTrialsError(null);
+    setTrialsPage(0);
     try {
       const res = await fetch("/api/trials", {
         method: "POST",
@@ -1076,6 +1086,7 @@ export default function Page() {
                         <th className="px-3 py-2 font-semibold">Drug</th>
                         <th className="px-3 py-2 font-semibold">Sponsor</th>
                         <th className="px-3 py-2 font-semibold">Indication</th>
+                        <th className="px-3 py-2 font-semibold">Approved</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1084,6 +1095,9 @@ export default function Page() {
                           <td className="px-3 py-2 font-medium text-nccn-navy">{d.name}</td>
                           <td className="px-3 py-2 text-slate-600">{d.sponsor ?? "—"}</td>
                           <td className="px-3 py-2 text-slate-600">{d.indication ?? "—"}</td>
+                          <td className="data whitespace-nowrap px-3 py-2 text-slate-600">
+                            {d.approvalDate ?? "—"}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1147,24 +1161,76 @@ export default function Page() {
               {trials.length === 0 ? (
                 <p className="text-sm text-slate-500">No trials returned.</p>
               ) : (
-                trials.map((t, i) => (
-                  <div key={i} className="rounded-lg border border-slate-200 p-3">
-                    <a
-                      href={t.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-medium text-nccn-blue hover:underline"
-                    >
-                      {t.title}
-                    </a>
-                    <div className="data mt-0.5 text-xs text-slate-400">{host(t.url)}</div>
-                    {t.highlight && (
-                      <p className="mt-1.5 rounded-md bg-slate-50 px-2.5 py-1.5 text-xs italic text-slate-600">
-                        “{t.highlight}”
-                      </p>
-                    )}
-                  </div>
-                ))
+                (() => {
+                  const pageSize = 6;
+                  const totalPages = Math.ceil(trials.length / pageSize);
+                  const page = Math.min(trialsPage, totalPages - 1);
+                  const shown = trials.slice(page * pageSize, page * pageSize + pageSize);
+                  return (
+                    <>
+                      {shown.map((t, i) => (
+                        <div key={i} className="rounded-lg border border-slate-200 p-3">
+                          <a
+                            href={t.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="font-medium text-nccn-blue hover:underline"
+                          >
+                            {t.title}
+                          </a>
+                          <div className="data mt-0.5 text-xs text-slate-400">
+                            {host(t.url)}
+                          </div>
+                          {t.highlight && (
+                            <p className="mt-1.5 line-clamp-2 rounded-md bg-slate-50 px-2.5 py-1.5 text-xs italic text-slate-600">
+                              “{clip(t.highlight)}”
+                            </p>
+                          )}
+                        </div>
+                      ))}
+
+                      {totalPages > 1 && (
+                        <div className="flex items-center justify-between pt-1">
+                          <span className="data text-xs text-slate-400">
+                            {page * pageSize + 1}–{page * pageSize + shown.length} of{" "}
+                            {trials.length} trials
+                          </span>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => setTrialsPage((p) => Math.max(0, p - 1))}
+                              disabled={page === 0}
+                              className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 disabled:opacity-40"
+                            >
+                              ‹
+                            </button>
+                            {Array.from({ length: totalPages }).map((_, pi) => (
+                              <button
+                                key={pi}
+                                onClick={() => setTrialsPage(pi)}
+                                className={`data h-7 w-7 rounded-md text-xs font-semibold transition ${
+                                  pi === page
+                                    ? "bg-nccn-navy text-white"
+                                    : "border border-slate-300 text-slate-500 hover:text-nccn-navy"
+                                }`}
+                              >
+                                {pi + 1}
+                              </button>
+                            ))}
+                            <button
+                              onClick={() =>
+                                setTrialsPage((p) => Math.min(totalPages - 1, p + 1))
+                              }
+                              disabled={page === totalPages - 1}
+                              className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 disabled:opacity-40"
+                            >
+                              ›
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()
               )}
             </div>
           )}
