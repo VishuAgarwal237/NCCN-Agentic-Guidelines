@@ -15,7 +15,7 @@ const mono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NCCN Guideline Copilot — Exa Demo",
+  title: "NCCN Agentic Guidelines",
   description:
     "Turns a static NCCN guideline into a living, evidence-backed decision surface powered by Exa.",
 };

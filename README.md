@@ -1,9 +1,9 @@
-# NCCN Guideline Copilot — Exa Demo
+# NCCN Agentic Guidelines
 
 Turns a **static NCCN treatment guideline** into a **living, evidence-backed decision
 surface** — powered entirely by [Exa](https://exa.ai), no other API.
 
-**Live demo:** https://havana-pja203gw7-vishu-agarwals-projects-86fb5b9f.vercel.app
+**Live demo:** https://havana-bxsbtpy6z-vishu-agarwals-projects-86fb5b9f.vercel.app
 *(deployment URL changes per redeploy)*
 
 ## The use case
@@ -23,22 +23,36 @@ surface** — powered entirely by [Exa](https://exa.ai), no other API.
 2. **NCCN treatment pathway** — every option per phase, tiered (Preferred / Other
    recommended / Certain circumstances) with its NCCN Evidence & Consensus category.
    **"Ground in NCCN via Exa"** pulls the real algorithm from source and cites it.
-3. **What's changed since the guideline** *(Exa)* — developments published after the
-   frozen version, each tagged with the guideline point it updates and cited
-   (FDA / PubMed / NEJM); "⤳ similar" finds related trials from one source.
+3. **Live evidence for this patient** *(Exa)* — one step, three lenses (tabs):
+   - **What's changed** — developments published after the frozen version, each tagged
+     with the guideline point it updates and cited; "⤳ similar" finds related studies.
+   - **Approved drugs** — deep structured search of recent FDA approvals in the subtype
+     (drug · sponsor · indication), with citations.
+   - **Open trials** — recruiting trials matching the profile from ClinicalTrials.gov.
 4. **Ask about this patient** *(Exa)* — a question-first, grounded, cited answer.
+
+**Monitors** *(Exa Monitors API, collapsible panel)* — scheduled searches that watch for
+the "thaw": new NCCN versions, FDA approvals, and regulatory / competitor news. Trigger a
+run on demand and view its history — the proactive complement to Step 3.
 
 ## Exa capabilities used (Exa-only)
 
 | Endpoint | Where | What it does |
 |---|---|---|
-| `/search` + `outputSchema` | Step 3 | Guideline-delta evidence: neural search scoped to authoritative domains, recency-filtered, grounded synthesis with field-level citations |
 | `/search` + `outputSchema` | Step 2 | Grounds the NCCN decision tree in guideline sources (nccn.org, cancer.gov) |
+| `/search` + `outputSchema` | Step 3 · What's changed | Guideline-delta evidence: neural search scoped to authoritative domains, recency-filtered, grounded synthesis with field-level citations |
+| `/search` `type=deep` + `outputSchema` | Step 3 · Approved drugs | Deep structured enrichment of recent FDA approvals |
+| `/search` | Step 3 · Open trials | Recruiting trials scoped to ClinicalTrials.gov |
+| `/findSimilar` | Step 3 · What's changed | Semantic "similar studies" from a source URL |
 | `/answer` | Step 4 | Question-first grounded answer with citations |
-| `/findSimilar` | Step 3 | Semantic "similar studies" from a source URL |
+| **Monitors** (`/monitors` create · trigger · runs) | Monitors panel | Scheduled recurring searches with run history; watches for guideline/regulatory change |
 
-Everything else (clinical-note extraction, subtype derivation, the baseline pathway
-engine) runs locally — Exa is called only where it is uniquely beneficial.
+Four distinct Exa endpoints (`/search`, `/answer`, `/findSimilar`, Monitors). Everything
+else (clinical-note extraction, subtype derivation, the baseline pathway engine) runs
+locally — Exa is called only where it is uniquely beneficial.
+
+> **Monitors require production.** The Monitors API needs a public HTTPS webhook, so
+> monitors can only be created on the deployed site, not `localhost`.
 
 ## Run it
 
@@ -68,13 +82,20 @@ does not re-hit the API.
 
 ```
 app/
-  page.tsx               Numbered 4-step UI (personas → pathway → evidence → ask)
-  api/evidence/route.ts  Exa /search — guideline-delta cited brief
-  api/pathway/route.ts   Exa /search — NCCN decision tree grounded in source
-  api/answer/route.ts    Exa /answer — grounded Q&A
-  api/similar/route.ts   Exa /findSimilar — similar studies
+  page.tsx                       4-step UI (personas → pathway → tabbed evidence → ask) + Monitors
+  api/evidence/route.ts          Exa /search — guideline-delta cited brief
+  api/pathway/route.ts           Exa /search — NCCN decision tree grounded in source
+  api/drugs/route.ts             Exa /search type=deep — recent FDA approvals (structured)
+  api/trials/route.ts            Exa /search — recruiting trials (ClinicalTrials.gov)
+  api/answer/route.ts            Exa /answer — grounded Q&A
+  api/similar/route.ts           Exa /findSimilar — similar studies
+  api/monitors/route.ts          Exa Monitors — list / create
+  api/monitors/[id]/trigger      Exa Monitors — manual run
+  api/monitors/[id]/runs         Exa Monitors — run history / detail
+  api/monitor-webhook/route.ts   No-op HTTPS webhook receiver (required by Monitors)
   layout.tsx, globals.css
 lib/
-  nccn.ts                Guideline data, subtype derivation, pathway engine,
-                         clinical-note extractor, patient personas, query builders
+  nccn.ts                        Guideline data, subtype derivation, pathway engine,
+                                 clinical-note extractor, patient personas, monitor
+                                 presets, query builders
 ```

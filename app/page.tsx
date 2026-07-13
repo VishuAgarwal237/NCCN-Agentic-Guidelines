@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   GUIDELINE_META,
   STAGES,
   SUBTYPES,
   SAMPLE_CASE,
   PATIENT_PERSONAS,
+  MONITOR_PRESETS,
   deriveSubtype,
   buildPathway,
   extractCaseProfile,
@@ -46,6 +47,20 @@ interface SimilarResult {
   url: string;
   publishedDate: string | null;
   highlight: string | null;
+}
+interface Monitor {
+  id: string;
+  name: string;
+  status: string;
+  nextRunAt?: string;
+  trigger?: { period?: string };
+}
+interface Run {
+  id: string;
+  status: string;
+  startedAt?: string;
+  completedAt?: string;
+  output?: { results?: { title?: string; url?: string; publishedDate?: string }[] };
 }
 
 /* -------------------------------- helpers --------------------------------- */
@@ -218,7 +233,10 @@ export default function Page() {
   const [grounding, setGrounding] = useState(false);
   const [groundError, setGroundError] = useState<string | null>(null);
 
-  // evidence (Exa)
+  // evidence (Exa) — three lenses under one step; remembered per patient
+  const [lensByPatient, setLensByPatient] = useState<
+    Record<string, "changed" | "drugs" | "trials">
+  >({});
   const [monthsBack, setMonthsBack] = useState(18);
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<EvidenceResponse | null>(null);
@@ -238,9 +256,38 @@ export default function Page() {
   } | null>(null);
   const [answerError, setAnswerError] = useState<string | null>(null);
 
+  // recently-approved drugs (Exa /search type=deep)
+  const [drugs, setDrugs] = useState<{
+    drugs: { name: string; sponsor?: string; indication?: string; approvalDate?: string }[];
+    citations: { url: string }[];
+  } | null>(null);
+  const [drugsLoading, setDrugsLoading] = useState(false);
+  const [drugsError, setDrugsError] = useState<string | null>(null);
+
+  // recruiting trials (Exa /search on clinicaltrials.gov)
+  const [trials, setTrials] = useState<
+    { title: string; url: string; publishedDate: string | null; highlight: string | null }[]
+    | null
+  >(null);
+  const [trialsLoading, setTrialsLoading] = useState(false);
+  const [trialsError, setTrialsError] = useState<string | null>(null);
+
+  // monitors (Exa Monitors API) — global, not per-patient
+  const [monitorsOpen, setMonitorsOpen] = useState(false);
+  const [monitors, setMonitors] = useState<Monitor[]>([]);
+  const [monitorsError, setMonitorsError] = useState<string | null>(null);
+  const [monitorBusy, setMonitorBusy] = useState<string | null>(null);
+  const [runsByMonitor, setRunsByMonitor] = useState<Record<string, Run[]>>({});
+
   const subtypeKey = deriveSubtype(er, pr, her2);
   const subtype = SUBTYPES[subtypeKey];
   const pathway = buildPathway(stage, subtypeKey);
+
+  // Remember the selected evidence lens per patient.
+  const patientKey = activePersona ?? `${stage}-${er}-${pr}-${her2}`;
+  const evidenceTab = lensByPatient[patientKey] ?? "changed";
+  const setEvidenceTab = (t: "changed" | "drugs" | "trials") =>
+    setLensByPatient((m) => ({ ...m, [patientKey]: t }));
 
   function resetDownstream() {
     setData(null);
@@ -248,6 +295,8 @@ export default function Page() {
     setGroundedSteps(null);
     setGroundError(null);
     setSimilarFor(null);
+    setDrugs(null);
+    setTrials(null);
   }
 
   function selectPersona(p: PatientPersona) {
@@ -369,6 +418,146 @@ export default function Page() {
     }
   }
 
+  async function runDrugs() {
+    setDrugsLoading(true);
+    setDrugsError(null);
+    try {
+      const res = await fetch("/api/drugs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ stage, er, pr, her2 }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) setDrugsError(json.error ?? "Something went wrong.");
+      else setDrugs(json);
+    } catch (e) {
+      setDrugsError((e as Error).message);
+    } finally {
+      setDrugsLoading(false);
+    }
+  }
+
+  async function runTrials() {
+    setTrialsLoading(true);
+    setTrialsError(null);
+    try {
+      const res = await fetch("/api/trials", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ stage, er, pr, her2 }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) setTrialsError(json.error ?? "Something went wrong.");
+      else setTrials(json.trials ?? []);
+    } catch (e) {
+      setTrialsError((e as Error).message);
+    } finally {
+      setTrialsLoading(false);
+    }
+  }
+
+  async function loadMonitors() {
+    try {
+      const res = await fetch("/api/monitors");
+      const json = await res.json();
+      if (!res.ok || json.error) setMonitorsError(json.error ?? "Could not load monitors.");
+      else {
+        setMonitors(json.monitors ?? []);
+        setMonitorsError(null);
+      }
+    } catch (e) {
+      setMonitorsError((e as Error).message);
+    }
+  }
+
+  useEffect(() => {
+    loadMonitors();
+  }, []);
+
+  // Load a monitor's run history + latest results (read-only).
+  async function loadRunsFor(id: string) {
+    try {
+      const res = await fetch(`/api/monitors/${id}/runs`);
+      const json = await res.json();
+      const runs: Run[] = json.runs ?? [];
+      setRunsByMonitor((m) => ({ ...m, [id]: runs }));
+      const latest = runs[0];
+      if (latest?.status === "completed") {
+        const dr = await fetch(`/api/monitors/${id}/runs?runId=${latest.id}`);
+        const dj = await dr.json();
+        setRunsByMonitor((m) => {
+          const cur = [...(m[id] ?? runs)];
+          if (cur[0]) cur[0] = { ...cur[0], ...dj.run };
+          return { ...m, [id]: cur };
+        });
+      }
+    } catch {
+      /* history is best-effort */
+    }
+  }
+
+  // When the panel is opened, populate history for any monitor not yet loaded.
+  useEffect(() => {
+    if (!monitorsOpen) return;
+    monitors.forEach((m) => {
+      if (!runsByMonitor[m.id]) loadRunsFor(m.id);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monitorsOpen, monitors]);
+
+  async function createMonitor(presetId: string) {
+    setMonitorBusy(presetId);
+    setMonitorsError(null);
+    try {
+      const res = await fetch("/api/monitors", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ presetId }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) setMonitorsError(json.error ?? "Could not create monitor.");
+      else await loadMonitors();
+    } catch (e) {
+      setMonitorsError((e as Error).message);
+    } finally {
+      setMonitorBusy(null);
+    }
+  }
+
+  async function triggerMonitor(id: string) {
+    setMonitorBusy(id);
+    try {
+      await fetch(`/api/monitors/${id}/trigger`, { method: "POST" });
+      // Poll the run history until the latest run completes.
+      for (let i = 0; i < 8; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const res = await fetch(`/api/monitors/${id}/runs`);
+        const json = await res.json();
+        const runs: Run[] = json.runs ?? [];
+        setRunsByMonitor((m) => ({ ...m, [id]: runs }));
+        const latest = runs[0];
+        if (latest && (latest.status === "completed" || latest.status === "failed")) {
+          if (latest.status === "completed") {
+            const dr = await fetch(`/api/monitors/${id}/runs?runId=${latest.id}`);
+            const dj = await dr.json();
+            setRunsByMonitor((m) => {
+              const cur = [...(m[id] ?? runs)];
+              if (cur[0]) cur[0] = { ...cur[0], ...dj.run };
+              return { ...m, [id]: cur };
+            });
+          }
+          break;
+        }
+      }
+    } finally {
+      setMonitorBusy(null);
+    }
+  }
+
+  const activePresetIds = new Set(
+    monitors.map((m) => (m.name || "").toLowerCase())
+  );
+
   return (
     <div className="min-h-screen bg-slate-50">
       {/* Header */}
@@ -378,7 +567,7 @@ export default function Page() {
             <div className="text-[11px] font-semibold uppercase tracking-wider text-nccn-pink">
               Oncology decision support · powered by Exa
             </div>
-            <h1 className="text-xl font-bold">NCCN Guideline Copilot</h1>
+            <h1 className="text-xl font-bold">NCCN Agentic Guidelines</h1>
           </div>
           <div className="text-right text-[11px] leading-tight text-white/70">
             <div className="font-semibold text-white">Breast cancer</div>
@@ -630,13 +819,44 @@ export default function Page() {
           )}
         </StepCard>
 
-        {/* STEP 3 — What's changed since the guideline */}
+        {/* STEP 3 — Live evidence (three Exa lenses) */}
         <StepCard
           n={3}
           exa
-          title="What's changed since the guideline"
-          subtitle="Live evidence via Exa — every claim grounded in a cited source"
-          action={
+          title="Live evidence for this patient"
+          subtitle="Three Exa lenses on this profile — grounded & cited"
+        >
+          {/* lens tabs */}
+          <div className="mb-4 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+            {(
+              [
+                ["changed", "What's changed"],
+                ["drugs", "Approved drugs"],
+                ["trials", "Open trials"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setEvidenceTab(key)}
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                  evidenceTab === key
+                    ? "bg-white text-nccn-navy shadow-sm"
+                    : "text-slate-500 hover:text-nccn-navy"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* LENS: what's changed */}
+          {evidenceTab === "changed" && (
+          <div>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-slate-500">
+              Developments published since the guideline froze — mapped to the point
+              they update.
+            </p>
             <div className="flex items-center gap-2">
               <select
                 value={monthsBack}
@@ -656,8 +876,7 @@ export default function Page() {
                 {loading ? "Searching…" : data ? "Refresh" : "Find evidence"}
               </button>
             </div>
-          }
-        >
+          </div>
           {error && (
             <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {error}
@@ -809,6 +1028,148 @@ export default function Page() {
               </div>
             </div>
           )}
+          </div>
+          )}
+
+          {/* LENS: approved drugs */}
+          {evidenceTab === "drugs" && (
+          <div>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-slate-500">
+              FDA approvals in this subtype in the last 2 years — deep structured search
+              (~10s).
+            </p>
+            <button
+              onClick={runDrugs}
+              disabled={drugsLoading}
+              className="rounded-lg bg-nccn-pink px-4 py-1.5 text-sm font-semibold text-white transition hover:brightness-95 disabled:opacity-50"
+            >
+              {drugsLoading ? "Scanning…" : drugs ? "Refresh" : "Scan FDA (deep)"}
+            </button>
+          </div>
+          {drugsError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {drugsError}
+            </div>
+          )}
+          {!drugs && !drugsLoading && !drugsError && (
+            <p className="py-4 text-center text-sm text-slate-400">
+              Deep search across FDA sources for drugs approved in this subtype in the
+              last 2 years. Slower (~10s) — it runs multiple query angles.
+            </p>
+          )}
+          {drugsLoading && (
+            <div className="py-6 text-center text-sm text-slate-500">
+              <div className="mx-auto mb-3 h-7 w-7 animate-spin rounded-full border-2 border-slate-200 border-t-nccn-pink" />
+              Deep search running…
+            </div>
+          )}
+          {drugs && !drugsLoading && (
+            <div className="space-y-3">
+              {drugs.drugs.length === 0 ? (
+                <p className="text-sm text-slate-500">No recent approvals returned.</p>
+              ) : (
+                <div className="overflow-hidden rounded-lg border border-slate-200">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-400">
+                      <tr>
+                        <th className="px-3 py-2 font-semibold">Drug</th>
+                        <th className="px-3 py-2 font-semibold">Sponsor</th>
+                        <th className="px-3 py-2 font-semibold">Indication</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {drugs.drugs.map((d, i) => (
+                        <tr key={i} className="border-t border-slate-100 align-top">
+                          <td className="px-3 py-2 font-medium text-nccn-navy">{d.name}</td>
+                          <td className="px-3 py-2 text-slate-600">{d.sponsor ?? "—"}</td>
+                          <td className="px-3 py-2 text-slate-600">{d.indication ?? "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {drugs.citations.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {drugs.citations.map((c, i) => (
+                    <a
+                      key={i}
+                      href={c.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-800 hover:bg-emerald-100"
+                    >
+                      🔗 {host(c.url)}
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          </div>
+          )}
+
+          {/* LENS: open trials */}
+          {evidenceTab === "trials" && (
+          <div>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-slate-500">
+              Trials currently enrolling patients matching this profile
+              (ClinicalTrials.gov).
+            </p>
+            <button
+              onClick={runTrials}
+              disabled={trialsLoading}
+              className="rounded-lg bg-nccn-pink px-4 py-1.5 text-sm font-semibold text-white transition hover:brightness-95 disabled:opacity-50"
+            >
+              {trialsLoading ? "Searching…" : trials ? "Refresh" : "Find trials"}
+            </button>
+          </div>
+          {trialsError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {trialsError}
+            </div>
+          )}
+          {!trials && !trialsLoading && !trialsError && (
+            <p className="py-4 text-center text-sm text-slate-400">
+              Find trials currently enrolling patients matching this profile.
+            </p>
+          )}
+          {trialsLoading && (
+            <div className="py-6 text-center text-sm text-slate-500">
+              <div className="mx-auto mb-3 h-7 w-7 animate-spin rounded-full border-2 border-slate-200 border-t-nccn-pink" />
+              Searching ClinicalTrials.gov…
+            </div>
+          )}
+          {trials && !trialsLoading && (
+            <div className="space-y-2">
+              {trials.length === 0 ? (
+                <p className="text-sm text-slate-500">No trials returned.</p>
+              ) : (
+                trials.map((t, i) => (
+                  <div key={i} className="rounded-lg border border-slate-200 p-3">
+                    <a
+                      href={t.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium text-nccn-blue hover:underline"
+                    >
+                      {t.title}
+                    </a>
+                    <div className="data mt-0.5 text-xs text-slate-400">{host(t.url)}</div>
+                    {t.highlight && (
+                      <p className="mt-1.5 rounded-md bg-slate-50 px-2.5 py-1.5 text-xs italic text-slate-600">
+                        “{t.highlight}”
+                      </p>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+          </div>
+          )}
         </StepCard>
 
         {/* STEP 4 — Ask */}
@@ -863,7 +1224,160 @@ export default function Page() {
           )}
         </StepCard>
 
-        <footer className="pb-8 pt-2 text-center text-xs text-slate-400">
+        {/* MONITORS — watch for the "thaw" (Exa Monitors API) — collapsible */}
+        <section className="mt-2 rounded-lg border border-nccn-navy/30 bg-white shadow-sm">
+          <button
+            onClick={() => setMonitorsOpen((o) => !o)}
+            className="flex w-full flex-wrap items-center gap-3 px-5 py-3.5 text-left"
+          >
+            <span className="data flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-nccn-navy text-xs font-semibold text-white">
+              ◎
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-semibold text-nccn-navy">
+                  Monitors — watch for the thaw
+                </h2>
+                <span className="data rounded bg-nccn-pink/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-nccn-pink">
+                  Exa
+                </span>
+                {monitors.length > 0 && (
+                  <span className="data rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
+                    {monitors.length} active
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500">
+                Scheduled Exa searches for new NCCN versions, FDA approvals &amp;
+                regulatory news. {monitorsOpen ? "" : "Click to expand."}
+              </p>
+            </div>
+            <span className="data shrink-0 text-slate-400">
+              {monitorsOpen ? "▲" : "▼"}
+            </span>
+          </button>
+
+          {monitorsOpen && (
+          <div className="space-y-4 border-t border-line p-5">
+            {monitorsError && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                {monitorsError}
+              </div>
+            )}
+
+            {/* create from presets */}
+            <div className="flex flex-wrap gap-2">
+              {MONITOR_PRESETS.map((p) => {
+                const exists = activePresetIds.has(p.name.toLowerCase());
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => createMonitor(p.id)}
+                    disabled={monitorBusy === p.id || exists}
+                    className={`rounded-lg border px-3 py-2 text-left text-xs transition ${
+                      exists
+                        ? "border-slate-200 bg-slate-50 text-slate-400"
+                        : "border-slate-300 bg-white hover:border-nccn-pink"
+                    }`}
+                    title={p.query}
+                  >
+                    <div className="font-semibold">
+                      {exists ? "✓ " : "+ "}
+                      {p.name}
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                      {monitorBusy === p.id ? "creating…" : exists ? "active" : "create monitor"}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* existing monitors */}
+            {monitors.length === 0 ? (
+              <p className="text-sm text-slate-400">
+                No monitors yet. Create one above to start watching.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {monitors.map((m) => {
+                  const runs = runsByMonitor[m.id] ?? [];
+                  const latest = runs[0];
+                  return (
+                    <div key={m.id} className="rounded-lg border border-slate-200 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="font-medium text-nccn-navy">{m.name}</div>
+                          <div className="data text-[11px] text-slate-400">
+                            {m.status} · every {m.trigger?.period ?? "1d"}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => triggerMonitor(m.id)}
+                          disabled={monitorBusy === m.id}
+                          className="rounded-lg border border-nccn-navy px-3 py-1.5 text-xs font-semibold text-nccn-navy transition hover:bg-nccn-navy hover:text-white disabled:opacity-50"
+                        >
+                          {monitorBusy === m.id ? "Running…" : "Run now"}
+                        </button>
+                      </div>
+
+                      {/* run history */}
+                      {runs.length > 0 && (
+                        <div className="mt-3 border-t border-slate-100 pt-3">
+                          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                            Run history
+                          </div>
+                          <div className="space-y-1">
+                            {runs.slice(0, 4).map((r) => (
+                              <div
+                                key={r.id}
+                                className="data flex items-center gap-2 text-[11px] text-slate-500"
+                              >
+                                <span
+                                  className={`h-1.5 w-1.5 rounded-full ${
+                                    r.status === "completed"
+                                      ? "bg-grounded"
+                                      : r.status === "failed"
+                                      ? "bg-red-400"
+                                      : "bg-amber-400"
+                                  }`}
+                                />
+                                {r.status}
+                                {r.startedAt
+                                  ? ` · ${new Date(r.startedAt).toLocaleString()}`
+                                  : ""}
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* latest results */}
+                          {latest?.output?.results && latest.output.results.length > 0 && (
+                            <div className="mt-2 space-y-1">
+                              {latest.output.results.slice(0, 5).map((r, i) => (
+                                <a
+                                  key={i}
+                                  href={r.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="block truncate text-xs text-nccn-blue hover:underline"
+                                >
+                                  • {r.title ?? r.url}
+                                </a>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          )}
+        </section>
+
+        <footer className="pb-8 pt-6 text-center text-xs text-slate-400">
           Demo only · Exa retrieves &amp; grounds evidence — the treating clinician makes the
           final decision. Not a medical device.
         </footer>

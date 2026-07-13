@@ -997,3 +997,70 @@ export function buildPathwayQuery(stage: StageKey, subtype: SubtypeKey): string 
   const setting = stage === "IV" ? "metastatic" : `stage ${stage} early-stage`;
   return `NCCN treatment decision algorithm and recommended treatment options for ${setting} ${s.label} invasive breast cancer, including preferred versus other recommended regimens and NCCN evidence and consensus categories`;
 }
+
+// ---------------------------------------------------------------------------
+// Deep drug-landscape query (Exa /search type=deep + outputSchema)
+// ---------------------------------------------------------------------------
+export const FDA_DOMAINS = [
+  "fda.gov",
+  "ascopubs.org",
+  "pubmed.ncbi.nlm.nih.gov",
+  "cancer.gov",
+];
+
+export function buildDrugsQuery(subtype: SubtypeKey): string {
+  return `FDA-approved drugs for ${SUBTYPES[subtype].label} breast cancer approved in the past two years, with the sponsor company and the approved indication`;
+}
+
+// ---------------------------------------------------------------------------
+// Recruiting-trials query (Exa /search scoped to ClinicalTrials.gov)
+// ---------------------------------------------------------------------------
+export function buildTrialsQuery(stage: StageKey, subtype: SubtypeKey): string {
+  const setting = stage === "IV" ? "metastatic" : `stage ${stage} early-stage`;
+  return `Recruiting clinical trials currently enrolling patients for ${setting} ${SUBTYPES[subtype].label} breast cancer`;
+}
+
+// ---------------------------------------------------------------------------
+// Monitor presets (Exa Monitors API) — watch for the "thaw"
+// ---------------------------------------------------------------------------
+export interface MonitorPreset {
+  id: string;
+  name: string;
+  query: string;
+}
+
+export const MONITOR_PRESETS: MonitorPreset[] = [
+  {
+    id: "nccn-version",
+    name: "New NCCN breast-cancer guideline versions",
+    query:
+      "new version or update of the NCCN Clinical Practice Guidelines in Oncology for breast cancer",
+  },
+  {
+    id: "fda-approvals",
+    name: "New FDA breast-cancer drug approvals",
+    query: "FDA approves new drug or new indication for breast cancer",
+  },
+  {
+    id: "regulatory",
+    name: "Competitor & regulatory announcements (oncology)",
+    query:
+      "oncology breast cancer regulatory changes, label updates, and competitor drug announcements",
+  },
+];
+
+// Broader source set for Monitors — reputable oncology news + regulators where
+// approval/guideline/regulatory news actually surfaces (recall matters here).
+export const MONITOR_DOMAINS = [
+  "fda.gov",
+  "nccn.org",
+  "ascopubs.org",
+  "ascopost.com",
+  "onclive.com",
+  "cancernetwork.com",
+  "targetedonc.com",
+  "fiercepharma.com",
+  "biopharmadive.com",
+  "cancer.gov",
+  "nejm.org",
+];
