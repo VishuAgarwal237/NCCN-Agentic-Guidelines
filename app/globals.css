@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-paper text-nccn-ink antialiased;
+}
+
+/* Clinical data — lab values, dates, NCCN categories — render in mono */
+.data {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Workflow spine node (the numbered care sequence) */
+.spine-node {
+  font-family: var(--font-mono);
+  @apply flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold;
+}
+
+/* Visible keyboard focus across interactive elements */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #d6417f;
+  outline-offset: 2px;
+}
+
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  @apply rounded-full bg-line;
+}
