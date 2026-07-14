@@ -58,17 +58,33 @@ export async function POST(req: NextRequest) {
         { status: 502 }
       );
     }
-    const json: { results?: ExaResult[] } = await res.json();
-    const payload = {
-      subtypeLabel: SUBTYPES[subtype].label,
-      trials: (json.results ?? []).map((r) => ({
-        title: r.title ?? "Untitled trial",
-        url: r.url ?? "",
-        publishedDate: r.publishedDate ?? null,
-        highlight: r.highlights?.[0] ?? null,
-      })),
-      cached: false,
+    // NCT IDs are assigned sequentially, so a higher number ≈ more recently
+    // registered — a good "newest first" proxy when pages carry no date.
+    const nctNum = (url: string) => {
+      const m = url.match(/NCT0*(\d+)/i);
+      return m ? parseInt(m[1], 10) : -Infinity;
     };
+    const json: { results?: ExaResult[] } = await res.json();
+    const seen = new Set<string>();
+    const trials = (json.results ?? [])
+      .map((r) => {
+        const url = r.url ?? "";
+        return {
+          title: r.title ?? "Untitled trial",
+          url,
+          nct: (url.match(/NCT\d+/i)?.[0] ?? "").toUpperCase(),
+          publishedDate: r.publishedDate ?? null,
+          highlight: r.highlights?.[0] ?? null,
+        };
+      })
+      // Keep only individual trial pages, de-duplicated by NCT id.
+      .filter((t) => {
+        if (!t.nct || seen.has(t.nct)) return false;
+        seen.add(t.nct);
+        return true;
+      })
+      .sort((a, b) => nctNum(b.url) - nctNum(a.url));
+    const payload = { subtypeLabel: SUBTYPES[subtype].label, trials, cached: false };
     cache.set(query, payload);
     return NextResponse.json(payload);
   } catch (err) {

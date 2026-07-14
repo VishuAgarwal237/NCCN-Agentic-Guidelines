@@ -216,6 +216,80 @@ function ReceptorPills({
   );
 }
 
+// Grouped bar chart for quantitative answers (e.g. median PFS by regimen).
+function PfsChart({
+  title,
+  data,
+}: {
+  title?: string;
+  data: { label: string; value: number; comparator?: number }[];
+}) {
+  const hasComp = data.some((d) => typeof d.comparator === "number");
+  const max = Math.max(1, ...data.flatMap((d) => [d.value, d.comparator ?? 0]));
+  const H = 180; // px height for the tallest bar
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      {title && (
+        <div className="mb-2 text-center text-sm font-semibold text-nccn-navy">
+          {title}
+        </div>
+      )}
+      {hasComp && (
+        <div className="mb-3 flex justify-center gap-4 text-[11px] text-slate-500">
+          <span className="flex items-center gap-1">
+            <span className="h-2.5 w-3 rounded-sm bg-nccn-blue" /> Comparator
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="h-2.5 w-3 rounded-sm bg-nccn-pink" /> New regimen
+          </span>
+        </div>
+      )}
+
+      <div className="flex items-end gap-3 border-b border-slate-200 pb-0">
+        {data.map((d, i) => (
+          <div key={i} className="flex flex-1 items-end justify-center gap-1">
+            {hasComp && typeof d.comparator === "number" && (
+              <div className="flex flex-col items-center">
+                <span className="data text-[10px] text-slate-500">{d.comparator}</span>
+                <div
+                  className="w-7 rounded-t bg-nccn-blue sm:w-9"
+                  style={{ height: `${(d.comparator / max) * H}px` }}
+                  title={`Comparator: ${d.comparator} mo`}
+                />
+              </div>
+            )}
+            <div className="flex flex-col items-center">
+              <span className="data text-[10px] font-semibold text-nccn-navy">
+                {d.value}
+              </span>
+              <div
+                className="w-7 rounded-t bg-nccn-pink sm:w-9"
+                style={{ height: `${(d.value / max) * H}px` }}
+                title={`New regimen: ${d.value} mo`}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-1 flex gap-3">
+        {data.map((d, i) => (
+          <div
+            key={i}
+            className="flex-1 text-center text-[10px] leading-tight text-slate-500"
+          >
+            {d.label}
+          </div>
+        ))}
+      </div>
+      <div className="mt-1.5 text-center text-[10px] uppercase tracking-wide text-slate-400">
+        Median PFS (months)
+      </div>
+    </div>
+  );
+}
+
 /* ---------------------------------- page ---------------------------------- */
 
 export default function Page() {
@@ -256,10 +330,14 @@ export default function Page() {
   const [similarLoading, setSimilarLoading] = useState(false);
 
   // ask (Exa)
-  const [question, setQuestion] = useState("");
+  const [question, setQuestion] = useState(
+    "Please provide progression-free survival (PFS) Kaplan–Meier data for the latest breast cancer drugs?"
+  );
   const [asking, setAsking] = useState(false);
   const [answer, setAnswer] = useState<{
     answer: string;
+    chart?: { label: string; value: number; comparator?: number }[];
+    chartTitle?: string;
     citations: { title: string; url: string }[];
   } | null>(null);
   const [answerError, setAnswerError] = useState<string | null>(null);
@@ -274,7 +352,13 @@ export default function Page() {
 
   // recruiting trials (Exa /search on clinicaltrials.gov)
   const [trials, setTrials] = useState<
-    { title: string; url: string; publishedDate: string | null; highlight: string | null }[]
+    {
+      title: string;
+      url: string;
+      nct?: string;
+      publishedDate: string | null;
+      highlight: string | null;
+    }[]
     | null
   >(null);
   const [trialsLoading, setTrialsLoading] = useState(false);
@@ -1178,8 +1262,15 @@ export default function Page() {
                           >
                             {t.title}
                           </a>
-                          <div className="data mt-0.5 text-xs text-slate-400">
-                            {host(t.url)}
+                          <div className="mt-0.5 flex items-center gap-2">
+                            {t.nct && (
+                              <span className="data rounded bg-nccn-blue/10 px-1.5 py-0.5 text-[10px] font-semibold text-nccn-blue">
+                                {t.nct}
+                              </span>
+                            )}
+                            <span className="data text-xs text-slate-400">
+                              {host(t.url)}
+                            </span>
                           </div>
                           {t.highlight && (
                             <p className="mt-1.5 line-clamp-2 rounded-md bg-slate-50 px-2.5 py-1.5 text-xs italic text-slate-600">
@@ -1270,6 +1361,11 @@ export default function Page() {
           )}
           {answer && (
             <div className="mt-3 rounded-xl border border-nccn-blue/20 bg-nccn-blue/5 p-4">
+              {answer.chart && answer.chart.length > 0 && (
+                <div className="mb-4">
+                  <PfsChart title={answer.chartTitle} data={answer.chart} />
+                </div>
+              )}
               <p className="whitespace-pre-wrap text-sm text-slate-800">{answer.answer}</p>
               {answer.citations.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-1.5 border-t border-nccn-blue/10 pt-3">

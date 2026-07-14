@@ -62,14 +62,51 @@ export async function POST(req: NextRequest) {
       "outcomes (e.g. progression-free survival, overall survival, response rate), report " +
       "concrete figures: median PFS/OS in months, hazard ratios with confidence intervals, " +
       "and the trial names and drugs they belong to, comparing the most relevant recent " +
-      "agents. If the user asks for a chart or Kaplan–Meier curve, state briefly that you " +
-      "cannot render an image, then summarize the underlying PFS data in a compact table or " +
-      "list and cite the trial publications that contain the curves. Prefer FDA labels, " +
-      "NEJM / Lancet / JCO, and NCCN. Keep every statement grounded in a source.",
+      "agents. When the question asks for a chart, graph, or Kaplan–Meier curve, ALSO fill " +
+      "the `chart` array: one entry per regimen/trial, where `label` is the regimen + " +
+      "setting + year (e.g. 'T-DXd + pertuzumab (HER2+ MBC, 2025)'), `value` is the new " +
+      "regimen's median PFS in months, and `comparator` is the control-arm median in months " +
+      "when reported. Only populate `chart` for outcomes that are numeric and comparable " +
+      "across regimens; otherwise leave it empty. Prefer FDA labels, NEJM / Lancet / JCO, " +
+      "and NCCN. Keep every statement grounded in a source.",
     outputSchema: {
-      type: "text",
-      description:
-        "A thorough, grounded answer for an oncologist, with concrete figures and trial names where relevant",
+      type: "object",
+      required: ["answer"],
+      properties: {
+        answer: {
+          type: "string",
+          description:
+            "A thorough, grounded prose answer for an oncologist, with concrete figures and trial names",
+        },
+        chartTitle: {
+          type: "string",
+          description:
+            "Short chart title if a chart applies, e.g. 'Median PFS in recent breast-cancer trials'",
+        },
+        chart: {
+          type: "array",
+          description:
+            "Bar-chart data for a quantitative outcome comparable across regimens (else empty)",
+          items: {
+            type: "object",
+            required: ["label", "value"],
+            properties: {
+              label: {
+                type: "string",
+                description: "Regimen + setting + year",
+              },
+              value: {
+                type: "number",
+                description: "New-regimen median value in months",
+              },
+              comparator: {
+                type: "number",
+                description: "Comparator/control-arm median in months, if reported",
+              },
+            },
+          },
+        },
+      },
     },
   };
 
@@ -88,15 +125,34 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    interface ChartPoint {
+      label?: string;
+      value?: number;
+      comparator?: number;
+    }
     const json: {
-      output?: { content?: unknown; grounding?: Grounding[] };
+      output?: {
+        content?:
+          | string
+          | { answer?: string; chartTitle?: string; chart?: ChartPoint[] };
+        grounding?: Grounding[];
+      };
       results?: { title?: string; url?: string; publishedDate?: string }[];
     } = await res.json();
 
+    const content = json.output?.content;
+    const obj = content && typeof content === "object" ? content : {};
     const answer =
-      typeof json.output?.content === "string"
-        ? json.output.content
-        : JSON.stringify(json.output?.content ?? "");
+      obj.answer ?? (typeof content === "string" ? content : "");
+    const chartTitle = obj.chartTitle ?? "";
+    const chart = (Array.isArray(obj.chart) ? obj.chart : [])
+      .filter((p) => p && p.label && typeof p.value === "number")
+      .map((p) => ({
+        label: String(p.label),
+        value: Number(p.value),
+        comparator:
+          typeof p.comparator === "number" ? Number(p.comparator) : undefined,
+      }));
 
     // Prefer grounded citations; fall back to retrieved sources.
     const seen = new Set<string>();
@@ -126,7 +182,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ answer, citations: citations.slice(0, 10) });
+    return NextResponse.json({
+      answer,
+      chart,
+      chartTitle,
+      citations: citations.slice(0, 10),
+    });
   } catch (err) {
     return NextResponse.json(
       { error: `Failed to reach Exa: ${(err as Error).message}` },
