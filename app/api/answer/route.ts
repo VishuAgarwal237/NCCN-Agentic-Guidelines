@@ -57,6 +57,8 @@ export async function POST(req: NextRequest) {
     contents: { highlights: true },
     systemPrompt:
       "You are answering a practicing oncologist's question about breast cancer. " +
+      "Fill `summary` with a single-sentence bottom-line takeaway that answers the " +
+      "question directly, then `answer` with the full detail. " +
       "Give a substantive, specific, clinically useful answer grounded in the retrieved " +
       "sources — not a one-line definition. When the question involves quantitative " +
       "outcomes (e.g. progression-free survival, overall survival, response rate), report " +
@@ -71,8 +73,13 @@ export async function POST(req: NextRequest) {
       "and NCCN. Keep every statement grounded in a source.",
     outputSchema: {
       type: "object",
-      required: ["answer"],
+      required: ["summary", "answer"],
       properties: {
+        summary: {
+          type: "string",
+          description:
+            "A single-sentence bottom-line takeaway answering the question directly (max ~25 words)",
+        },
         answer: {
           type: "string",
           description:
@@ -134,7 +141,12 @@ export async function POST(req: NextRequest) {
       output?: {
         content?:
           | string
-          | { answer?: string; chartTitle?: string; chart?: ChartPoint[] };
+          | {
+              summary?: string;
+              answer?: string;
+              chartTitle?: string;
+              chart?: ChartPoint[];
+            };
         grounding?: Grounding[];
       };
       results?: { title?: string; url?: string; publishedDate?: string }[];
@@ -144,6 +156,7 @@ export async function POST(req: NextRequest) {
     const obj = content && typeof content === "object" ? content : {};
     const answer =
       obj.answer ?? (typeof content === "string" ? content : "");
+    const summary = obj.summary ?? "";
     const chartTitle = obj.chartTitle ?? "";
     const chart = (Array.isArray(obj.chart) ? obj.chart : [])
       .filter((p) => p && p.label && typeof p.value === "number")
@@ -183,6 +196,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({
+      summary,
       answer,
       chart,
       chartTitle,

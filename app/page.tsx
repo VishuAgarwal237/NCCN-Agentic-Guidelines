@@ -335,6 +335,7 @@ export default function Page() {
   );
   const [asking, setAsking] = useState(false);
   const [answer, setAnswer] = useState<{
+    summary?: string;
     answer: string;
     chart?: { label: string; value: number; comparator?: number }[];
     chartTitle?: string;
@@ -1361,6 +1362,11 @@ export default function Page() {
           )}
           {answer && (
             <div className="mt-3 rounded-xl border border-nccn-blue/20 bg-nccn-blue/5 p-4">
+              {answer.summary && (
+                <p className="mb-3 text-sm font-bold text-nccn-navy">
+                  {answer.summary}
+                </p>
+              )}
               {answer.chart && answer.chart.length > 0 && (
                 <div className="mb-4">
                   <PfsChart title={answer.chartTitle} data={answer.chart} />
