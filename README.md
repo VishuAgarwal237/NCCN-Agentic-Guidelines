@@ -28,8 +28,11 @@ surface** — powered entirely by [Exa](https://exa.ai), no other API.
      with the guideline point it updates and cited; "⤳ similar" finds related studies.
    - **Approved drugs** — deep structured search of recent FDA approvals in the subtype
      (drug · sponsor · indication), with citations.
-   - **Open trials** — recruiting trials matching the profile from ClinicalTrials.gov.
-4. **Ask about this patient** *(Exa)* — a question-first, grounded, cited answer.
+   - **Open trials** — recruiting trials matching the profile from ClinicalTrials.gov,
+     ordered newest-first by NCT id.
+4. **Ask about this patient** *(Exa)* — a free-text question returns a **bold one-line
+   takeaway**, a **bar chart** for quantitative outcomes (e.g. median PFS by regimen), and
+   a grounded, cited answer.
 
 **Monitors** *(Exa Monitors API, collapsible panel)* — scheduled searches that watch for
 the "thaw": new NCCN versions, FDA approvals, and regulatory / competitor news. Trigger a
@@ -43,13 +46,15 @@ run on demand and view its history — the proactive complement to Step 3.
 | `/search` + `outputSchema` | Step 3 · What's changed | Guideline-delta evidence: neural search scoped to authoritative domains, recency-filtered, grounded synthesis with field-level citations |
 | `/search` `type=deep` + `outputSchema` | Step 3 · Approved drugs | Deep structured enrichment of recent FDA approvals |
 | `/search` | Step 3 · Open trials | Recruiting trials scoped to ClinicalTrials.gov |
+| `/search` `type=deep` + `outputSchema` | Step 4 · Ask | Deep synthesis into a one-line summary, prose answer, cited sources, and (when applicable) bar-chart data |
 | `/findSimilar` | Step 3 · What's changed | Semantic "similar studies" from a source URL |
-| `/answer` | Step 4 | Question-first grounded answer with citations |
 | **Monitors** (`/monitors` create · trigger · runs) | Monitors panel | Scheduled recurring searches with run history; watches for guideline/regulatory change |
 
-Four distinct Exa endpoints (`/search`, `/answer`, `/findSimilar`, Monitors). Everything
-else (clinical-note extraction, subtype derivation, the baseline pathway engine) runs
-locally — Exa is called only where it is uniquely beneficial.
+Three distinct Exa endpoints — `/search`, `/findSimilar`, and Monitors — across ~10 call
+sites. `/search` does triple duty: raw retrieval, grounded schema-structured synthesis with
+field-level citations, and deep multi-step research. Everything else (clinical-note
+extraction, subtype derivation, the baseline pathway engine) runs locally — Exa is called
+only where it is uniquely beneficial.
 
 > **Monitors require production.** The Monitors API needs a public HTTPS webhook, so
 > monitors can only be created on the deployed site, not `localhost`.
@@ -87,7 +92,7 @@ app/
   api/pathway/route.ts           Exa /search — NCCN decision tree grounded in source
   api/drugs/route.ts             Exa /search type=deep — recent FDA approvals (structured)
   api/trials/route.ts            Exa /search — recruiting trials (ClinicalTrials.gov)
-  api/answer/route.ts            Exa /answer — grounded Q&A
+  api/answer/route.ts            Exa /search type=deep — summary + chart + cited answer
   api/similar/route.ts           Exa /findSimilar — similar studies
   api/monitors/route.ts          Exa Monitors — list / create
   api/monitors/[id]/trigger      Exa Monitors — manual run
